@@ -55,10 +55,21 @@ u_int32_t host_to_network_addr(u_int32_t a, u_int32_t b, u_int32_t c, u_int32_t 
 	return res;
 }
 
+u_int32_t network_to_host_addr(u_int32_t addr)
+{
+	return addr;
+}
+
 u_int16_t host_to_network_port(u_int16_t p)
 {
 	u_int16_t right = (p >> 8) & 255;
 	return (p << 8) | right;
+}
+
+u_int16_t network_to_host_port(u_int16_t p)
+{
+	u_int16_t left = p & 255;
+	return (p >> 8) | (left << 8);
 }
 
 effic_string s, buff;
