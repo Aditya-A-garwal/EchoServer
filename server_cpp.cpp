@@ -3,30 +3,23 @@
 
 #include <sys/socket.h>
 #include <sys/epoll.h>
-
 #include <arpa/inet.h>
-
 #include <unistd.h>
 
 #define PORT 8080
 #define MAX_EVENTS 65535
 
-struct effic_string
+struct string_buffer
 {
 	char 	*ptr;
 
 	size_t	len , size , cap;
 
-	effic_string()
+	string_buffer()
 	{
 		ptr = new char[2];
 		len = 0, size = 1, cap = 2;
 		ptr[0] = ptr[1] = 0;
-	}
-
-	void operator+=(const char &other)
-	{
-		this->append(other);
 	}
 
 	void append(const char &other)
@@ -63,30 +56,30 @@ struct effic_string
 	int recv_from(const int sd, const char delim)
 	{
 		char c = delim + 1;
-		int num = 0;
+		int num_recv = 0;
 
 		while(1)
 		{
-			num += recv( sd, &c, 1, 0 );
-			if(c == delim) return (num - 1);
+			num_recv += recv( sd, &c, 1, 0 );
+			if(c == delim) return (num_recv - 1);
 			this->append(c);
 		}
 
-		return num;
+		return num_recv;
 	}
 
 	int recv_from_include(const int sd, const char delim)
 	{
 		char c = delim + 1;
-		int num = 0;
+		int num_recv = 0;
 
 		while(c != delim)
 		{
-			num += recv( sd, &c, 1, 0);
+			num_recv += recv( sd, &c, 1, 0);
 			this->append(c);
 		}
 
-		return num;
+		return num_recv;
 	}
 
 	char *&get()
@@ -96,124 +89,98 @@ struct effic_string
 	{  return ptr[index];  }
 };
 
-u_int32_t host_to_network_addr(u_int32_t a, u_int32_t b, u_int32_t c, u_int32_t d)
+struct callback
 {
-	u_int32_t res = 0;
-	res = a | (b << 8) | (c << 16) | (d << 24);
-	return res;
+	int sock;
+	void (*func)(const int &, const int &, const sockaddr_in &, const int &);
+
+	callback(int s, void (*f)(const int &, const int &, const sockaddr_in &, const int &))
+	{
+		sock = s;
+		func = f;
+	}
+
+	~callback()
+	{
+		puts("destructing");
+	}
+};
+
+string_buffer buffer;
+
+void __echo(const int &sd, const int &epoll_fd, const sockaddr_in &address, const int &addrlen)
+{
+	buffer.reset(); buffer.recv_from_include( sd, ';' );
+
+	if(buffer.len == 2 && buffer[0] == 'q')
+	{
+		getpeername(sd , (struct sockaddr*)&address, (socklen_t *)&addrlen);
+		printf("Host disconnected, ip %s, port %d \n", inet_ntoa(address.sin_addr) , ntohs(address.sin_port));
+
+		epoll_ctl(epoll_fd, EPOLL_CTL_DEL, sd, NULL);
+		close( sd );
+	}
+	else
+	{
+		printf("Sending to %d: %s\n", sd, buffer.get());
+		send( sd , buffer.get() , buffer.len , 0 );
+	}
 }
 
-char *network_to_host_addr(u_int32_t addr)
+void __accept(const int &listener, const int &epoll_fd, const sockaddr_in & address, const int &addrlen)
 {
-	u_int32_t a = addr & 255;
-	u_int32_t b = (addr >> 8) & 255;
-	u_int32_t c = (addr >> 16) & 255;
-	u_int32_t d = (addr >> 24) & 255;
+	int new_socket = accept(listener, (struct sockaddr *)&address, (socklen_t*)&addrlen);
+	printf("New connection, socket %d, ip %s, port %d\n" , new_socket , inet_ntoa(address.sin_addr) , ntohs(address.sin_port));
 
-	char* res = new char[16];
-	res[15] = 0;
-	res[3] = res[7] = res[11] = '.';
+	epoll_event secondary_event;
+	secondary_event.data.ptr = (void *)(new callback(new_socket, &__echo));
+	secondary_event.events = EPOLLIN;
 
-	res[0] = '0' + (char)(a/100);
-	res[1] = '0' + (char)((a/10) % 10);
-	res[2] = '0' + (char)(a % 10);
-
-	res[4] = '0' + (char)(b/100);
-	res[5] = '0' + (char)((b/10) % 10);
-	res[6] = '0' + (char)(b % 10);
-
-	res[8] = '0' + (char)(c/100);
-	res[9] = '0' + (char)((c/10) % 10);
-	res[10] = '0' + (char)(c % 10);
-
-	res[12] = '0' + (char)(d/100);
-	res[13] = '0' + (char)((d/10) % 10);
-	res[14] = '0' + (char)(d % 10);
-
-	return res;
-}
-
-u_int16_t host_to_network_port(u_int16_t p)
-{
-	u_int16_t right = (p >> 8) & 255;
-	return (p << 8) | right;
-}
-
-u_int16_t network_to_host_port(u_int16_t p)
-{
-	u_int16_t left = p & 255;
-	return (p >> 8) | (left << 8);
+	epoll_ctl(epoll_fd, EPOLL_CTL_ADD, new_socket, &secondary_event);
 }
 
 int main(int argc , char *argv[])
 {
-	int opt = 1, listener , addrlen , new_socket , num_events, i , num_recv , sd;
+	int32_t listener , new_socket , sd , epoll_fd;
 	sockaddr_in address;
-	effic_string buffer;
-	epoll_event primary_event, events[MAX_EVENTS], *secondary_event;
-	char c;
+	u_int32_t addrlen;
+	epoll_event primary_event, events[MAX_EVENTS];
 
 	// create a socket and set its options
 	listener = socket(AF_INET , SOCK_STREAM , 0);
-	setsockopt(listener, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, 4);
 
-	// set the type of the socket
+	// int opt = 1;
+	// setsockopt(listener, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, 4);
+
 	address.sin_family = AF_INET;
-	*(u_int32_t *)&(address.sin_addr) = host_to_network_addr(127, 0, 0, 1);
-	address.sin_port = host_to_network_port( PORT );
+	inet_pton(AF_INET, "127.0.0.1", &address.sin_addr);
+	address.sin_port = htons( PORT );
 	addrlen = sizeof(address);
-	// address.sin_addr.s_addr = INADDR_ANY;
 
-	// bind the socket to a fixed port and start listening
 	bind(listener, (struct sockaddr *)&address, sizeof(address));
 	listen(listener, 65535);
 	printf("Listener on port %d \nWaiting for connections\n", PORT);
 
-	primary_event.data.fd = listener;
+	epoll_fd = epoll_create1(0);
+	callback cb1(listener, &__accept);
+	primary_event.data.ptr = (void *)&cb1;
 	primary_event.events = EPOLLIN;
 
-	int epoll_fd = epoll_create1(0);
 	epoll_ctl(epoll_fd, EPOLL_CTL_ADD, listener, &primary_event);
 
 	while(1)
 	{
-		num_events = epoll_wait( epoll_fd, events, MAX_EVENTS, 0 ); // get the number of events
-
+		int32_t num_events = epoll_wait( epoll_fd, events, MAX_EVENTS, -1 );
 		for(int i = 0; i < num_events; i++)
 		{
-			sd = events[i].data.fd;
-			if(sd == listener)
-			{
-				new_socket = accept(listener, (struct sockaddr *)&address, (socklen_t*)&addrlen);
-				printf("New connection, socket : %d, ip : %s, port : %d\n" , new_socket , network_to_host_addr(*(int *)&(address.sin_addr)) , network_to_host_port(address.sin_port));
-
-				secondary_event = new epoll_event[1];
-				secondary_event->data.fd = new_socket;
-				secondary_event->events = EPOLLIN;
-
-				epoll_ctl(epoll_fd, EPOLL_CTL_ADD, new_socket, secondary_event);
-			}
-			else
-			{
-				buffer.reset(); buffer.recv_from_include( sd, ';' );
-
-				if(buffer.len == 2 && buffer[0] == 'q')
-				{
-					getpeername(sd , (struct sockaddr*)&address, (socklen_t*)&addrlen);
-					printf("Host disconnected, ip %s, port %d \n", network_to_host_addr(*(int *)&(address.sin_addr)) , network_to_host_port(address.sin_port));
-
-					epoll_ctl(epoll_fd, EPOLL_CTL_DEL, sd, NULL);
-					close( sd );
-				}
-				else
-				{
-					printf("Sending to %d: %s\n", sd, buffer.get());
-					send( sd , buffer.get() , buffer.len , 0 );
-				}
-			}
+			// callback cb = *(callback *)(events[i].data.ptr);
+			// cb.func(cb.sock, epoll_fd, address, addrlen);
+			((callback *)(events[i].data.ptr))->func(((callback *)(events[i].data.ptr))->sock, epoll_fd, address, addrlen);
 		}
 	}
 
 	close(epoll_fd);
+	close(listener);
+
 	return 0;
 }
