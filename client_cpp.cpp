@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include <unistd.h>
 
 #define PORT 8080
 
@@ -9,9 +10,7 @@ struct effic_string
 {
 	char 	*ptr;
 
-	size_t	len;
-	size_t	size;
-	size_t	cap;
+	size_t	len , size , cap;
 
 	effic_string()
 	{
@@ -21,6 +20,11 @@ struct effic_string
 	}
 
 	void operator+=(const char &other)
+	{
+		this->append(other);
+	}
+
+	void append(const char &other)
 	{
 		len ++, size ++;
 		if(size >= cap)
@@ -41,6 +45,45 @@ struct effic_string
 		ptr[0] = ptr[1] = 0;
 	}
 
+	void input(const char delim)
+	{
+		char c = delim + 1;
+		while(c != delim)
+		{
+			c = getchar();
+			this->append(c);
+		}
+	}
+
+	int recv_from(const int sd, const char delim)
+	{
+		char c = delim + 1;
+		int num = 0;
+
+		while(1)
+		{
+			num += recv( sd, &c, 1, 0 );
+			if(c == delim) return (num - 1);
+			this->append(c);
+		}
+
+		return num;
+	}
+
+	int recv_from_include(const int sd, const char delim)
+	{
+		char c = delim + 1;
+		int num = 0;
+
+		while(c != delim)
+		{
+			num += recv( sd, &c, 1, 0);
+			this->append(c);
+		}
+
+		return num;
+	}
+
 	char *&get()
 	{  return ptr;  }
 
@@ -55,9 +98,34 @@ u_int32_t host_to_network_addr(u_int32_t a, u_int32_t b, u_int32_t c, u_int32_t 
 	return res;
 }
 
-u_int32_t network_to_host_addr(u_int32_t addr)
+char *network_to_host_addr(u_int32_t addr)
 {
-	return addr;
+	u_int32_t a = addr & 255;
+	u_int32_t b = (addr >> 8) & 255;
+	u_int32_t c = (addr >> 16) & 255;
+	u_int32_t d = (addr >> 24) & 255;
+
+	char* res = new char[16];
+	res[15] = 0;
+	res[3] = res[7] = res[11] = '.';
+
+	res[0] = '0' + (char)(a/100);
+	res[1] = '0' + (char)((a/10) % 10);
+	res[2] = '0' + (char)(a % 10);
+
+	res[4] = '0' + (char)(b/100);
+	res[5] = '0' + (char)((b/10) % 10);
+	res[6] = '0' + (char)(b % 10);
+
+	res[8] = '0' + (char)(c/100);
+	res[9] = '0' + (char)((c/10) % 10);
+	res[10] = '0' + (char)(c % 10);
+
+	res[12] = '0' + (char)(d/100);
+	res[13] = '0' + (char)((d/10) % 10);
+	res[14] = '0' + (char)(d % 10);
+
+	return res;
 }
 
 u_int16_t host_to_network_port(u_int16_t p)
@@ -90,33 +158,19 @@ int main(int argc, char const *argv[])
 
 	while(1)
 	{
-		char c;
-		s.reset(); buff.reset();
-		num_recv = 0;
-
 		printf(">> ");
-		while(1)
-		{
-			c = getchar();
-			if(c == '\n') { s += ';'; break; }
-			s += c;
-		}
+		s.reset(); s.input('\n');
+		s[s.len - 1] = ';';
 
 		send( sock, s.get(), s.len, 0 );
 		if(s[0] == 'q' && s.len == 2) break;
 
-		while(1)
-		{
-			num_recv += recv( sock, &c, 1, 0 );
-			if(c == ';') { num_recv -= 1; break; }
-			buff += c;
-		}
-
-		printf("%d\t%s\n", num_recv, buff.get());
+		buff.reset(); buff.recv_from( sock, ';' );
+		printf("%d\t%s\n", (int)buff.len, buff.get());
 	}
 
 	printf("CLOSING CONNECTION\n");
-	shutdown( sock, SHUT_RDWR );
+	close( sock );
 
 	return 0;
 }
