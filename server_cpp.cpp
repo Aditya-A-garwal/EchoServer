@@ -92,23 +92,18 @@ struct string_buffer
 struct callback
 {
 	int sock;
-	void (*func)(const int &, const int &, const sockaddr_in &, const int &);
+	int (*func)(const int &, const int &, const sockaddr_in &, const int &);
 
-	callback(int s, void (*f)(const int &, const int &, const sockaddr_in &, const int &))
+	callback(int s, int (*f)(const int &, const int &, const sockaddr_in &, const int &))
 	{
 		sock = s;
 		func = f;
-	}
-
-	~callback()
-	{
-		puts("destructing");
 	}
 };
 
 string_buffer buffer;
 
-void __echo(const int &sd, const int &epoll_fd, const sockaddr_in &address, const int &addrlen)
+int __echo(const int &sd, const int &epoll_fd, const sockaddr_in &address, const int &addrlen)
 {
 	buffer.reset(); buffer.recv_from_include( sd, ';' );
 
@@ -119,15 +114,20 @@ void __echo(const int &sd, const int &epoll_fd, const sockaddr_in &address, cons
 
 		epoll_ctl(epoll_fd, EPOLL_CTL_DEL, sd, NULL);
 		close( sd );
+
+		return 0;
 	}
 	else
 	{
 		printf("Sending to %d: %s\n", sd, buffer.get());
 		send( sd , buffer.get() , buffer.len , 0 );
 	}
+
+	return 1;
+
 }
 
-void __accept(const int &listener, const int &epoll_fd, const sockaddr_in & address, const int &addrlen)
+int __accept(const int &listener, const int &epoll_fd, const sockaddr_in &address, const int &addrlen)
 {
 	int new_socket = accept(listener, (struct sockaddr *)&address, (socklen_t*)&addrlen);
 	printf("New connection, socket %d, ip %s, port %d\n" , new_socket , inet_ntoa(address.sin_addr) , ntohs(address.sin_port));
@@ -137,6 +137,8 @@ void __accept(const int &listener, const int &epoll_fd, const sockaddr_in & addr
 	secondary_event.events = EPOLLIN;
 
 	epoll_ctl(epoll_fd, EPOLL_CTL_ADD, new_socket, &secondary_event);
+
+	return 1;
 }
 
 int main(int argc , char *argv[])
@@ -153,11 +155,12 @@ int main(int argc , char *argv[])
 	// setsockopt(listener, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, 4);
 
 	address.sin_family = AF_INET;
-	inet_pton(AF_INET, "127.0.0.1", &address.sin_addr);
 	address.sin_port = htons( PORT );
+	address.sin_addr.s_addr = INADDR_ANY;
+	// inet_pton(AF_INET, "192.168.1.22", &address.sin_addr);
 	addrlen = sizeof(address);
 
-	bind(listener, (struct sockaddr *)&address, sizeof(address));
+	bind(listener, (sockaddr *)&address, sizeof(address));
 	listen(listener, 65535);
 	printf("Listener on port %d \nWaiting for connections\n", PORT);
 
@@ -173,9 +176,9 @@ int main(int argc , char *argv[])
 		int32_t num_events = epoll_wait( epoll_fd, events, MAX_EVENTS, -1 );
 		for(int i = 0; i < num_events; i++)
 		{
-			// callback cb = *(callback *)(events[i].data.ptr);
-			// cb.func(cb.sock, epoll_fd, address, addrlen);
-			((callback *)(events[i].data.ptr))->func(((callback *)(events[i].data.ptr))->sock, epoll_fd, address, addrlen);
+			callback *cb = (callback *)(events[i].data.ptr);
+			int state = cb->func(cb->sock, epoll_fd, address, addrlen);
+			if(!state) delete cb;
 		}
 	}
 

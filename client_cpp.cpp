@@ -43,12 +43,12 @@ struct string_buffer
 
 	void input(const char delim)
 	{
-		char c = delim + 1;
-		while(c != delim)
+		char c;
+		do
 		{
 			c = getchar();
 			this->append(c);
-		}
+		}while(c != delim);
 	}
 
 	int recv_from(const int sd, const char delim)
@@ -87,13 +87,11 @@ struct string_buffer
 	{  return ptr[index];  }
 };
 
-sockaddr_in serv_addr, clie_addr;
-
 int main(int argc, char const *argv[])
 {
-
 	string_buffer s, buff;
-	int32_t sock;
+	int sock;
+	sockaddr_in serv_addr, clie_addr;
 
 	serv_addr.sin_family				= AF_INET;
 	serv_addr.sin_port					= htons(8080);
