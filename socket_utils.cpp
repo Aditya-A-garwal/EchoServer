@@ -12,11 +12,6 @@ namespace simple_string
 {
     string_buffer::string_buffer()
     {
-        // capacity is the number of characters allocated (including final nullptr)
-        // len is the number of characters currently held (not including nullptr)
-        // ptr[len - 1] holds the last valid character
-        // ptr[len] is always NULL
-
         ptr = new char[1];
         len = 0, cap = 1;
         ptr[0] = 0;
@@ -82,9 +77,11 @@ namespace simple_string
         {
             num_recv = recv( sd, temp_buff, MSG_BLOCK_LEN, 0 );
             num_recv_tot += num_recv;
-            if(temp_buff[num_recv - 1] == delim) return (num_recv_tot - 1);
+            if(temp_buff[num_recv - 1] == delim) break;
             this->append(temp_buff, num_recv);
         }
+        this->append(temp_buff, num_recv - 1);
+        return num_recv_tot - 1;
     }
 
     int string_buffer::recv_from_include(const int sd, const char delim)
