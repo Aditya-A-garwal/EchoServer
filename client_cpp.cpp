@@ -5,91 +5,15 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 
+#include "socket_utils.hpp"
+
+#define DELIM_CHAR (char)0
+
 #define PORT 8080
-
-struct string_buffer
-{
-	char 	*ptr;
-
-	size_t	len , size , cap;
-
-	string_buffer()
-	{
-		ptr = new char[2];
-		len = 0, size = 1, cap = 2;
-		ptr[0] = ptr[1] = 0;
-	}
-
-	void append(const char &other)
-	{
-		len ++, size ++;
-		if(size >= cap)
-		{
-			cap <<= 1;
-			char *newPtr = new char[cap];
-			memset(newPtr, 0, cap);
-			memcpy(newPtr, ptr, size);
-			delete[] ptr;
-			ptr = newPtr;
-		}
-		ptr[len - 1] = other, ptr[size - 1] = 0;
-	}
-
-	void reset()
-	{
-		len = 0, size = 1;
-		ptr[0] = ptr[1] = 0;
-	}
-
-	void input(const char delim)
-	{
-		char c;
-		do
-		{
-			c = getchar();
-			this->append(c);
-		}while(c != delim);
-	}
-
-	int recv_from(const int sd, const char delim)
-	{
-		char c = delim + 1;
-		int num_recv = 0;
-
-		while(1)
-		{
-			num_recv += recv( sd, &c, 1, 0 );
-			if(c == delim) return (num_recv - 1);
-			this->append(c);
-		}
-
-		return num_recv;
-	}
-
-	int recv_from_include(const int sd, const char delim)
-	{
-		char c = delim + 1;
-		int num_recv = 0;
-
-		while(c != delim)
-		{
-			num_recv += recv( sd, &c, 1, 0);
-			this->append(c);
-		}
-
-		return num_recv;
-	}
-
-	char *&get()
-	{  return ptr;  }
-
-	char &operator[](const size_t &index)
-	{  return ptr[index];  }
-};
 
 int main(int argc, char const *argv[])
 {
-	string_buffer s, buff;
+	simple_string::string_buffer s, buff;
 	int sock;
 	sockaddr_in serv_addr, clie_addr;
 
@@ -106,12 +30,12 @@ int main(int argc, char const *argv[])
 	{
 		printf(">> ");
 		s.reset(); s.input('\n');
-		s[s.len - 1] = ';';
+		s[s.len - 1] = DELIM_CHAR;
 
 		send( sock, s.get(), s.len, 0 );
 		if(s[0] == 'q' && s.len == 2) break;
 
-		buff.reset(); buff.recv_from( sock, ';' );
+		buff.reset(); buff.recv_from( sock, DELIM_CHAR );
 		printf("%d\t%s\n", (int)buff.len, buff.get());
 	}
 

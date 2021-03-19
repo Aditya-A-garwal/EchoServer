@@ -6,106 +6,18 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 
+#include "socket_utils.hpp"
+
 #define PORT 8080
 #define MAX_EVENTS 65535
 
-struct string_buffer
-{
-	char 	*ptr;
+#define DELIM_CHAR	(char)0
 
-	size_t	len , size , cap;
-
-	string_buffer()
-	{
-		ptr = new char[2];
-		len = 0, size = 1, cap = 2;
-		ptr[0] = ptr[1] = 0;
-	}
-
-	void append(const char &other)
-	{
-		len ++, size ++;
-		if(size >= cap)
-		{
-			cap <<= 1;
-			char *newPtr = new char[cap];
-			memset(newPtr, 0, cap);
-			memcpy(newPtr, ptr, size);
-			delete[] ptr;
-			ptr = newPtr;
-		}
-		ptr[len - 1] = other, ptr[size - 1] = 0;
-	}
-
-	void reset()
-	{
-		len = 0, size = 1;
-		ptr[0] = ptr[1] = 0;
-	}
-
-	void input(const char delim)
-	{
-		char c = delim + 1;
-		while(c != delim)
-		{
-			c = getchar();
-			this->append(c);
-		}
-	}
-
-	int recv_from(const int sd, const char delim)
-	{
-		char c = delim + 1;
-		int num_recv = 0;
-
-		while(1)
-		{
-			num_recv += recv( sd, &c, 1, 0 );
-			if(c == delim) return (num_recv - 1);
-			this->append(c);
-		}
-
-		return num_recv;
-	}
-
-	int recv_from_include(const int sd, const char delim)
-	{
-		char c = delim + 1;
-		int num_recv = 0;
-
-		while(c != delim)
-		{
-			num_recv += recv( sd, &c, 1, 0);
-			this->append(c);
-		}
-
-		return num_recv;
-	}
-
-	char *&get()
-	{  return ptr;  }
-
-	char &operator[](const size_t &index)
-	{  return ptr[index];  }
-};
-
-struct callback
-{
-	int sock;
-	int (*func)(const int &, const int &, const sockaddr_in &, const int &);
-
-	callback(int s, int (*f)(const int &, const int &, const sockaddr_in &, const int &))
-	{
-		sock = s;
-		func = f;
-	}
-};
-
-string_buffer buffer;
+simple_string::string_buffer buffer;
 
 int __echo(const int &sd, const int &epoll_fd, const sockaddr_in &address, const int &addrlen)
 {
-	buffer.reset(); buffer.recv_from_include( sd, ';' );
+	buffer.reset(); buffer.recv_from_include( sd, DELIM_CHAR );
 
 	if(buffer.len == 2 && buffer[0] == 'q')
 	{
@@ -133,7 +45,7 @@ int __accept(const int &listener, const int &epoll_fd, const sockaddr_in &addres
 	printf("New connection, socket %d, ip %s, port %d\n" , new_socket , inet_ntoa(address.sin_addr) , ntohs(address.sin_port));
 
 	epoll_event secondary_event;
-	secondary_event.data.ptr = (void *)(new callback(new_socket, &__echo));
+	secondary_event.data.ptr = (void *)(new simple_callback::callback(new_socket, &__echo));
 	secondary_event.events = EPOLLIN;
 
 	epoll_ctl(epoll_fd, EPOLL_CTL_ADD, new_socket, &secondary_event);
@@ -165,7 +77,7 @@ int main(int argc , char *argv[])
 	printf("Listener on port %d \nWaiting for connections\n", PORT);
 
 	epoll_fd = epoll_create1(0);
-	callback cb1(listener, &__accept);
+	simple_callback::callback cb1(listener, &__accept);
 	primary_event.data.ptr = (void *)&cb1;
 	primary_event.events = EPOLLIN;
 
@@ -176,7 +88,7 @@ int main(int argc , char *argv[])
 		int32_t num_events = epoll_wait( epoll_fd, events, MAX_EVENTS, -1 );
 		for(int i = 0; i < num_events; i++)
 		{
-			callback *cb = (callback *)(events[i].data.ptr);
+			simple_callback::callback *cb = (simple_callback::callback *)(events[i].data.ptr);
 			int state = cb->func(cb->sock, epoll_fd, address, addrlen);
 			if(!state) delete cb;
 		}
