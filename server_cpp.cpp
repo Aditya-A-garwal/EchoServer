@@ -8,40 +8,49 @@
 
 #include "socket_utils.hpp"
 
-#define PORT 8080
-#define MAX_EVENTS 65535
+#define PORT			8080
+#define MAX_EVENTS		65535
 
-#define DELIM_CHAR	(char)0
+#define DELIM_CHAR		(char)0
+#define MSG_BLOCK_LEN	256
 
-simple_string::string_buffer buffer;
-
-int __echo(const int &sd, const int &epoll_fd, const sockaddr_in &address, const int &addrlen)
+int __echo(simple_callback::callback *cb, const int &epoll_fd, const sockaddr_in &address, const int &addrlen)
 {
-	buffer.reset(); buffer.recv_from_include( sd, DELIM_CHAR );
+	const int &sd = cb->sock;
+	simple_string::string_buffer &s = cb->s;
 
-	if(buffer.len == 2 && buffer[0] == 'q')
+	char temp_buff[MSG_BLOCK_LEN];
+	int num_recv = 0;
+
+	num_recv = recv( sd, temp_buff, MSG_BLOCK_LEN, 0 );
+
+	if(num_recv == 0)
 	{
-		getpeername(sd , (struct sockaddr*)&address, (socklen_t *)&addrlen);
+		getpeername(sd , (struct sockaddr*)&address, (socklen_t *)&address);
 		printf("Host disconnected, ip %s, port %d \n", inet_ntoa(address.sin_addr) , ntohs(address.sin_port));
 
 		epoll_ctl(epoll_fd, EPOLL_CTL_DEL, sd, NULL);
 		close( sd );
-
-		return 0;
+		delete cb;
 	}
 	else
 	{
-		printf("Sending to %d: %s\n", sd, buffer.get());
-		send( sd , buffer.get() , buffer.len , 0 );
+		s.append( temp_buff, num_recv );
+		if(temp_buff[num_recv - 1] == DELIM_CHAR)
+		{
+			printf("Sending to %d: %s\n", sd, s.get());
+			send( sd , s.get() , s.len , 0 );
+			s.reset();
+		}
 	}
 
 	return 1;
-
 }
 
-int __accept(const int &listener, const int &epoll_fd, const sockaddr_in &address, const int &addrlen)
+int __accept(simple_callback::callback *cb, const int &epoll_fd, const sockaddr_in &address, const int &addrlen)
 {
-	int new_socket = accept(listener, (struct sockaddr *)&address, (socklen_t*)&addrlen);
+	const int &sd = cb->sock;
+	int new_socket = accept(sd, (struct sockaddr *)&address, (socklen_t*)&addrlen);
 	printf("New connection, socket %d, ip %s, port %d\n" , new_socket , inet_ntoa(address.sin_addr) , ntohs(address.sin_port));
 
 	epoll_event secondary_event;
@@ -89,8 +98,7 @@ int main(int argc , char *argv[])
 		for(int i = 0; i < num_events; i++)
 		{
 			simple_callback::callback *cb = (simple_callback::callback *)(events[i].data.ptr);
-			int state = cb->func(cb->sock, epoll_fd, address, addrlen);
-			if(!state) delete cb;
+			cb->func(cb, epoll_fd, address, addrlen);
 		}
 	}
 

@@ -1,12 +1,8 @@
 #include <cstring>
-#include <cstdio>
-
 #include <arpa/inet.h>
-#include <unistd.h>
-
 #include "socket_utils.hpp"
 
-#define MSG_BLOCK_LEN   256
+#define MSG_BLOCK_LEN   64
 
 namespace simple_string
 {
@@ -58,47 +54,6 @@ namespace simple_string
         ptr[0] = 0;
     }
 
-    void string_buffer::input(const char delim)
-    {
-        char c = delim + 1;
-        while(c != delim)
-        {
-            c = getchar();
-            this->append(c);
-        }
-    }
-
-    int string_buffer::recv_from(const int sd, const char delim)
-    {
-        int num_recv_tot = 0, num_recv;
-        char temp_buff[MSG_BLOCK_LEN];
-
-        while(1)
-        {
-            num_recv = recv( sd, temp_buff, MSG_BLOCK_LEN, 0 );
-            num_recv_tot += num_recv;
-            if(temp_buff[num_recv - 1] == delim) break;
-            this->append(temp_buff, num_recv);
-        }
-        this->append(temp_buff, num_recv - 1);
-        return num_recv_tot - 1;
-    }
-
-    int string_buffer::recv_from_include(const int sd, const char delim)
-    {
-        int num_recv_tot = 0, num_recv = 0;
-        char temp_buff[MSG_BLOCK_LEN];
-
-        do
-        {
-            num_recv = recv( sd, temp_buff, MSG_BLOCK_LEN, 0);
-            num_recv_tot += num_recv;
-            this->append(temp_buff, num_recv);
-        } while(temp_buff[num_recv - 1] != delim);
-
-        return num_recv;
-    }
-
     char *&string_buffer::get()
     {  return ptr;  }
 
@@ -111,7 +66,7 @@ namespace simple_string
 
 namespace simple_callback
 {
-    callback::callback(int s, int (*f)(const int &, const int &, const sockaddr_in &, const int &))
+    callback::callback(int s, int (*f)(callback *, const int &, const sockaddr_in &, const int &))
     {
         sock = s;
         func = f;

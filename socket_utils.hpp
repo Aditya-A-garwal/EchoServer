@@ -9,9 +9,6 @@ namespace simple_string
         void append( const char & );
         void append( const char * , size_t );
         void reset( );
-        void input( const char );
-        int recv_from( const int , const char );
-        int recv_from_include( const int , const char );
         char *&get();
         char &operator[]( const size_t & );
         ~string_buffer( );
@@ -23,9 +20,10 @@ namespace simple_callback
     struct callback
     {
         int sock;
-        int (*func)(const int &, const int &, const sockaddr_in &, const int &);
+        int (*func)(simple_callback::callback *, const int &, const sockaddr_in &, const int &);
+        simple_string::string_buffer s;
 
-        callback(int, int (*)(const int &, const int &, const sockaddr_in &, const int &));
+        callback(int, int (*)(simple_callback::callback *, const int &, const sockaddr_in &, const int &));
     };
 }
 
