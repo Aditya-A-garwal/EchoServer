@@ -2,3 +2,5 @@ server_cpp
 client_cpp
 *.exe
 .vscode
+
+build/
